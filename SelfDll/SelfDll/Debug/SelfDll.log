@@ -1,0 +1,15 @@
+﻿D:\E\vs2017\Enterprise\Common7\IDE\VC\VCTargets\Platforms\Win32\PlatformToolsets\v141_xp\Toolset.targets(39,5): warning MSB8051: 面向 Windows XP 的支持已被弃用，将来的 Visual Studio 版本不再提供该支持。请访问 https://go.microsoft.com/fwlink/?linkid=2023588，获取详细信息。
+cl : 命令行 warning D9025: 正在重写“/sdl-”(用“/GS-”)
+  pch.cpp
+cl : 命令行 warning D9025: 正在重写“/sdl-”(用“/GS-”)
+  DllInject_Reflect_Shell.cpp
+d:\e\c_project\vs2017_project\selfdll\selfdll\dllinject_reflect_shell.cpp(20): warning C4273: “DllInject_Reflect_Shell_x32”: dll 链接不一致
+  d:\e\c_project\vs2017_project\selfdll\selfdll\pch.h(19): note: 参见“DllInject_Reflect_Shell_x32”的前一个定义
+d:\e\c_project\vs2017_project\selfdll\selfdll\dllinject_reflect_shell.cpp(143): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+  c:\program files (x86)\windows kits\10\include\10.0.10240.0\ucrt\stdio.h(205): note: 参见“fopen”的声明
+d:\e\c_project\vs2017_project\selfdll\selfdll\dllinject_reflect_shell.cpp(203): warning C4101: “dwHashValue”: 未引用的局部变量
+  dllmain.cpp
+  正在生成代码...
+DllInject_Reflect_Shell.obj : warning LNK4075: 忽略“/EDITANDCONTINUE”(由于“/INCREMENTAL:NO”规范)
+    正在创建库 D:\E\C_project\vs2017_project\SelfDll\Debug\SelfDll.lib 和对象 D:\E\C_project\vs2017_project\SelfDll\Debug\SelfDll.exp
+  SelfDll.vcxproj -> D:\E\C_project\vs2017_project\SelfDll\Debug\SelfDll.dll

