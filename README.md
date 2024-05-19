@@ -14,7 +14,7 @@
   - 《SelfDll》：shellcode应用示例。
 
 - 测试结果
-![测试结果](https://raw.githubusercontent.com/02SWD/ReflectDLLLoaderShellcode/main/%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C.png)
+![测试结果](./测试结果.png)
 
 - 项目参考：
   - https://github.com/stephenfewer/ReflectiveDLLInjection
